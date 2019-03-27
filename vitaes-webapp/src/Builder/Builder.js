@@ -3,6 +3,7 @@ import firebase from 'firebase';
 import arrayMove from 'array-move';
 import fetch from 'fetch-retry';
 import { toast } from 'react-toastify';
+import { Document, Page } from 'react-pdf';
 import _ from 'lodash';
 import {
   Button, Form, Card, Col, Row,
@@ -28,6 +29,7 @@ class Builder extends Component {
   constructor(props) {
     super(props);
     this.state = {
+      pdf_path: 'http://localhost:5000/cv/YBH3DTDKBD/',
       downloading: false,
       showBugUi: false,
       chosenLabel: '',
@@ -55,6 +57,7 @@ class Builder extends Component {
     this.uploadJSON = this.uploadJSON.bind(this);
 
     this.autoSave();
+    setInterval(()=>this.downloadCvAsPDF(true), 5000);
   }
 
   setCv(cv) {
@@ -75,8 +78,8 @@ class Builder extends Component {
     element.click();
   }
 
-  downloadCvAsPDF() {
-    if (this.state.downloading) {
+  downloadCvAsPDF(hidden) {
+    if (this.state.downloading && !hidden) {
       return;
     }
     if (!validateEmail(this.props.cv.CvHeaderItem.email)) {
@@ -97,7 +100,9 @@ class Builder extends Component {
     const cv = removeDisabled(this.props.cv);
     // TODO this should be receiving full locale
     this.state.params.lang = getActiveLocale();
-    this.setState({ downloading: true });
+    if (!hidden) {
+      this.setState({ downloading: true });
+    }
     fetch(`${window.location.protocol}//${getHostname()}/cv/`, {
       method: 'POST',
       headers: {
@@ -113,6 +118,7 @@ class Builder extends Component {
     }).then((response) => {
       if (response.ok) {
         const saveOn = (path) => {
+          return;
           const db = firebase
             .database()
             .ref(path)
@@ -126,7 +132,9 @@ class Builder extends Component {
           db.set(this.props.cv);
         };
         const idPromise = response.text();
-        toast(`${translate('loading')}...`, { autoClose: false, toastId: 'downloading' });
+        if (!hidden) {
+          toast(`${translate('loading')}...`, { autoClose: false, toastId: 'downloading' });
+        }
         idPromise.then((id) => {
           fetch(
             `${window.location.protocol}//${getHostname()}/cv/${id}/`,
@@ -139,19 +147,26 @@ class Builder extends Component {
           ).then((cvresponse) => {
             if (cvresponse.ok) {
               saveOn('cv-dumps');
-              const fileBlob = cvresponse.blob();
-              fileBlob.then((file) => {
-                const element = document.createElement('a');
-                element.href = URL.createObjectURL(file);
-                element.download = 'cv.pdf';
-                element.click();
-              });
-              toast.update('downloading', { render: `${translate('ready')}!`, autoClose: 5000, type: toast.TYPE.INFO });
-              this.setState({ downloading: false });
+              if (!hidden) {
+                const fileBlob = cvresponse.blob();
+              
+                fileBlob.then((file) => {
+                  const element = document.createElement('a');
+                  element.href = URL.createObjectURL(file);
+                  element.download = 'cv.pdf';
+                  element.click();
+                });
+                toast.update('downloading', { render: `${translate('ready')}!`, autoClose: 5000, type: toast.TYPE.INFO });
+                this.setState({ downloading: false });
+              } else {
+                this.setState({ pdf_path: `${window.location.protocol}//${getHostname()}/cv/${id}/` });
+              }
             } else {
               saveOn('cv-errors');
-              toast.update('downloading', { render: translate('error_processing_file'), autoClose: 5000, type: toast.TYPE.ERROR });
-              this.setState({ downloading: false });
+              if (!hidden) {
+                toast.update('downloading', { render: translate('error_processing_file'), autoClose: 5000, type: toast.TYPE.ERROR });
+                this.setState({ downloading: false });
+              }
             }
           });
         });
@@ -253,7 +268,7 @@ class Builder extends Component {
         );
       }
     }
-    return (
+    const builder = (
       <Card bg="light">
         <Card.Body>
           <Button
@@ -398,7 +413,19 @@ class Builder extends Component {
           onHide={() => this.setState({ showBugUi: false })}
         />
       </Card>
-    );
+      )
+    return (<Row>
+      <Col sm="8">
+        {builder}
+      </Col>
+    <Col sm="4">
+      <Document
+            file={this.state.pdf_path}
+          >
+            <Page pageNumber={1} />
+          </Document>
+          </Col>
+        </Row>);
   }
 }
 
